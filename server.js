@@ -7,20 +7,35 @@ const dotenv = require('dotenv');
 dotenv.config();
 const Groq = require('groq-sdk');
 
+function stripSurroundingQuotes(value) {
+    if (!value) return value;
+    const trimmed = String(value).trim();
+    if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+        return trimmed.slice(1, -1);
+    }
+    return trimmed;
+}
+
 function readSecretValue(name) {
     if (process.env[name] && String(process.env[name]).trim().length > 0) {
-        return String(process.env[name]).trim();
+        return stripSurroundingQuotes(process.env[name]);
     }
     const filePath = process.env[`${name}_FILE`] || process.env[`${name}_PATH`];
     if (filePath) {
         try {
-            const value = fs.readFileSync(filePath, 'utf8').trim();
-            if (value) return value;
+            const value = fs.readFileSync(filePath, 'utf8');
+            const stripped = stripSurroundingQuotes(value);
+            if (stripped) return stripped;
         } catch (err) {
             console.error(`Failed to read secret from file for ${name}:`, filePath, err.message);
         }
     }
     return '';
+}
+
+function parseBoolean(value) {
+    const v = String(value || '').trim().toLowerCase();
+    return v === 'true' || v === '1' || v === 'yes' || v === 'y' || v === 'on';
 }
 
 const groqApiKey = readSecretValue('GROQ_API_KEY');
@@ -128,12 +143,15 @@ app.post('/generate-summary', upload.single('transcript'), async (req, res) => {
 app.post('/share-summary', async (req, res) => {
     const { summary, recipient } = req.body;
 
-    const smtpHost = process.env.SMTP_HOST;
-    const smtpPort = Number(process.env.SMTP_PORT) || 587;
-    const smtpSecure = String(process.env.SMTP_SECURE || '').toLowerCase() === 'true';
-    const smtpUser = process.env.SMTP_USER;
-    const smtpPass = process.env.SMTP_PASS;
-    const emailFrom = process.env.EMAIL_FROM || smtpUser;
+    const smtpHost = readSecretValue('SMTP_HOST');
+    const smtpPortRaw = readSecretValue('SMTP_PORT');
+    const smtpSecureRaw = readSecretValue('SMTP_SECURE');
+    const smtpUser = readSecretValue('SMTP_USER');
+    const smtpPass = readSecretValue('SMTP_PASS');
+    const emailFrom = readSecretValue('EMAIL_FROM') || smtpUser;
+
+    const smtpPort = Number(smtpPortRaw) || 587;
+    const smtpSecure = parseBoolean(smtpSecureRaw) || smtpPort === 465;
 
     if (!smtpHost || !smtpUser || !smtpPass) {
         return res.status(500).json({ message: 'Email service not configured on server.' });
@@ -174,13 +192,27 @@ app.get('/diag', (req, res) => {
     const groqKeyFromEnv = !!process.env.GROQ_API_KEY;
     const groqKeyFile = process.env.GROQ_API_KEY_FILE || process.env.GROQ_API_KEY_PATH || null;
     const groqKeyPresent = !!readSecretValue('GROQ_API_KEY');
+
+    const smtpHost = readSecretValue('SMTP_HOST');
+    const smtpUser = readSecretValue('SMTP_USER');
+    const smtpPass = readSecretValue('SMTP_PASS');
+    const smtpPortRaw = readSecretValue('SMTP_PORT');
+    const smtpSecureRaw = readSecretValue('SMTP_SECURE');
+    const smtpPort = Number(smtpPortRaw) || 587;
+    const smtpSecure = parseBoolean(smtpSecureRaw) || smtpPort === 465;
+
     res.json({
         groqEnabled: !!groqClient,
         groqKeyPresent,
         groqKeyFromEnv,
         groqKeyFile: groqKeyFile || null,
         groqModel: readSecretValue('GROQ_MODEL') || null,
-        smtpConfigured: !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
+        smtpConfigured: !!(smtpHost && smtpUser && smtpPass),
+        smtpHostPresent: !!smtpHost,
+        smtpUserPresent: !!smtpUser,
+        smtpPassPresent: !!smtpPass,
+        smtpPort,
+        smtpSecure
     });
 });
 
@@ -189,5 +221,5 @@ app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
     console.log('Groq enabled:', !!groqClient);
     console.log('GROQ_API_KEY present:', !!process.env.GROQ_API_KEY, 'file:', process.env.GROQ_API_KEY_FILE || process.env.GROQ_API_KEY_PATH || null);
-    console.log('SMTP configured:', !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS));
+    console.log('SMTP configured:', !!(readSecretValue('SMTP_HOST') && readSecretValue('SMTP_USER') && readSecretValue('SMTP_PASS')));
 });
