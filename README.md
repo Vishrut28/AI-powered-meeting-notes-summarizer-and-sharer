@@ -1,6 +1,7 @@
 # Meeting Summarizer
 
 An AI-powered meeting notes summarizer and sharer.
+https://ai-powered-meeting-notes-summarizer-and.onrender.com/
 
 ## Tech Stack
 - Node.js + Express
