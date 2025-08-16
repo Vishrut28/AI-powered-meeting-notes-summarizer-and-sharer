@@ -6,7 +6,25 @@ const path = require('path');
 const dotenv = require('dotenv');
 dotenv.config();
 const Groq = require('groq-sdk');
-const groqClient = process.env.GROQ_API_KEY ? new Groq({ apiKey: process.env.GROQ_API_KEY }) : null;
+
+function readSecretValue(name) {
+    if (process.env[name] && String(process.env[name]).trim().length > 0) {
+        return String(process.env[name]).trim();
+    }
+    const filePath = process.env[`${name}_FILE`] || process.env[`${name}_PATH`];
+    if (filePath) {
+        try {
+            const value = fs.readFileSync(filePath, 'utf8').trim();
+            if (value) return value;
+        } catch (err) {
+            console.error(`Failed to read secret from file for ${name}:`, filePath, err.message);
+        }
+    }
+    return '';
+}
+
+const groqApiKey = readSecretValue('GROQ_API_KEY');
+const groqClient = groqApiKey ? new Groq({ apiKey: groqApiKey }) : null;
 const pdfParse = require('pdf-parse');
 
 const app = express();
@@ -30,8 +48,9 @@ async function generateSummaryWithAI(transcript, prompt) {
         const systemMessage = 'You are a helpful assistant that creates concise, structured summaries of meeting transcripts. Use clear headings and bullet points, include key decisions and action items. Honor the user instruction.';
         const userMessage = `Instruction: ${prompt || 'Summarize the meeting transcript with key points and action items.'}\n\nTranscript:\n${transcript}`;
 
+        const configuredModel = readSecretValue('GROQ_MODEL');
         const modelsToTry = [];
-        if (process.env.GROQ_MODEL) modelsToTry.push(process.env.GROQ_MODEL);
+        if (configuredModel) modelsToTry.push(configuredModel);
         modelsToTry.push('llama-3.1-70b-versatile', 'llama3-70b-8192', 'mixtral-8x7b-32768');
 
         for (const model of modelsToTry) {
@@ -53,14 +72,13 @@ async function generateSummaryWithAI(transcript, prompt) {
                 }
             } catch (error) {
                 console.error('Groq API error with model', model, ':', (error && error.response && error.response.data) || error.message || error);
-                // try next model
             }
         }
     }
 
     return new Promise(resolve => {
         setTimeout(() => {
-            const summary = `--- AI-Generated Summary (Simulated) ---\n\nPrompt: "${prompt}"\n\nTranscript beginning:\n"${transcript.substring(0, 250)}..."\n\n[No working Groq configuration. Ensure GROQ_API_KEY is set and a valid model is available.]`;
+            const summary = `--- AI-Generated Summary (Simulated) ---\n\nPrompt: "${prompt}"\n\nTranscript beginning:\n"${transcript.substring(0, 250)}..."\n\n[No working Groq configuration. Ensure GROQ_API_KEY is set (or GROQ_API_KEY_FILE points to a secret file) and a valid model is available.]`;
             resolve(summary);
         }, 800);
     });
@@ -153,10 +171,15 @@ app.get('/healthz', (req, res) => {
 });
 
 app.get('/diag', (req, res) => {
+    const groqKeyFromEnv = !!process.env.GROQ_API_KEY;
+    const groqKeyFile = process.env.GROQ_API_KEY_FILE || process.env.GROQ_API_KEY_PATH || null;
+    const groqKeyPresent = !!readSecretValue('GROQ_API_KEY');
     res.json({
         groqEnabled: !!groqClient,
-        groqKeyPresent: !!process.env.GROQ_API_KEY,
-        groqModel: process.env.GROQ_MODEL || null,
+        groqKeyPresent,
+        groqKeyFromEnv,
+        groqKeyFile: groqKeyFile || null,
+        groqModel: readSecretValue('GROQ_MODEL') || null,
         smtpConfigured: !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
     });
 });
@@ -165,5 +188,6 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
     console.log('Groq enabled:', !!groqClient);
+    console.log('GROQ_API_KEY present:', !!process.env.GROQ_API_KEY, 'file:', process.env.GROQ_API_KEY_FILE || process.env.GROQ_API_KEY_PATH || null);
     console.log('SMTP configured:', !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS));
 });
