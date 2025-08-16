@@ -1,0 +1,15 @@
+# .gitignore
+# This file tells Git which files to ignore.
+# Create this file in your root project directory.
+
+# Dependencies
+node_modules/
+
+# Temporary uploaded files
+uploads/
+
+# Environment variables file
+.env
+
+# Log files
+*.log
