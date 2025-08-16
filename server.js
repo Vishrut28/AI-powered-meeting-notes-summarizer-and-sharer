@@ -27,35 +27,40 @@ app.use(express.json());
 // Replace this with a call to the Groq, Gemini, or another AI service.
 async function generateSummaryWithAI(transcript, prompt) {
     if (groqClient) {
-        try {
-            const systemMessage = 'You are a helpful assistant that creates concise, structured summaries of meeting transcripts. Use clear headings and bullet points, include key decisions and action items. Honor the user instruction.';
-            const userMessage = `Instruction: ${prompt || 'Summarize the meeting transcript with key points and action items.'}\n\nTranscript:\n${transcript}`;
+        const systemMessage = 'You are a helpful assistant that creates concise, structured summaries of meeting transcripts. Use clear headings and bullet points, include key decisions and action items. Honor the user instruction.';
+        const userMessage = `Instruction: ${prompt || 'Summarize the meeting transcript with key points and action items.'}\n\nTranscript:\n${transcript}`;
 
-            const completion = await groqClient.chat.completions.create({
-                messages: [
-                    { role: 'system', content: systemMessage },
-                    { role: 'user', content: userMessage }
-                ],
-                model: process.env.GROQ_MODEL || 'llama-3.1-70b-versatile',
-                temperature: 0.3,
-                max_tokens: Number(process.env.GROQ_MAX_TOKENS || 1024)
-            });
+        const modelsToTry = [];
+        if (process.env.GROQ_MODEL) modelsToTry.push(process.env.GROQ_MODEL);
+        modelsToTry.push('llama-3.1-70b-versatile', 'llama3-70b-8192', 'mixtral-8x7b-32768');
 
-            const content = completion.choices && completion.choices[0] && completion.choices[0].message && completion.choices[0].message.content
-                ? completion.choices[0].message.content.trim()
-                : '';
-
-            if (content) {
-                return content;
+        for (const model of modelsToTry) {
+            try {
+                const completion = await groqClient.chat.completions.create({
+                    messages: [
+                        { role: 'system', content: systemMessage },
+                        { role: 'user', content: userMessage }
+                    ],
+                    model,
+                    temperature: 0.3,
+                    max_tokens: Number(process.env.GROQ_MAX_TOKENS || 1024)
+                });
+                const content = completion && completion.choices && completion.choices[0] && completion.choices[0].message && completion.choices[0].message.content
+                    ? completion.choices[0].message.content.trim()
+                    : '';
+                if (content) {
+                    return content;
+                }
+            } catch (error) {
+                console.error('Groq API error with model', model, ':', (error && error.response && error.response.data) || error.message || error);
+                // try next model
             }
-        } catch (error) {
-            console.error('Groq API error, falling back to simulated summary:', error);
         }
     }
 
     return new Promise(resolve => {
         setTimeout(() => {
-            const summary = `--- AI-Generated Summary (Simulated) ---\n\nPrompt: "${prompt}"\n\nTranscript beginning:\n"${transcript.substring(0, 250)}..."\n\n[No GROQ_API_KEY configured. Set GROQ_API_KEY to enable real AI summaries.]`;
+            const summary = `--- AI-Generated Summary (Simulated) ---\n\nPrompt: "${prompt}"\n\nTranscript beginning:\n"${transcript.substring(0, 250)}..."\n\n[No working Groq configuration. Ensure GROQ_API_KEY is set and a valid model is available.]`;
             resolve(summary);
         }, 800);
     });
