@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: meeting-summarizer
+    runtime: node
+    plan: free
+    repo: https://github.com/Vishrut28/AI-powered-meeting-notes-summarizer-and-sharer
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: PORT
+        value: 3000
+      # Configure these in the Render dashboard or here if you prefer
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.1-70b-versatile
+      - key: GROQ_MAX_TOKENS
+        value: 1024
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_SECURE
+        value: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+    healthCheckPath: /healthz
