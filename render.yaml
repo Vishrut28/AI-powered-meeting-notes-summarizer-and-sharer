@@ -3,7 +3,7 @@ services:
     name: meeting-summarizer
     runtime: node
     plan: free
-    repo: https://github.com/your-username/your-repo
+    repo: https://github.com/Vishrut28/AI-powered-meeting-notes-summarizer-and-sharer
     buildCommand: npm ci --omit=dev
     startCommand: npm start
     envVars:
