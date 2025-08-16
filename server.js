@@ -3,6 +3,10 @@ const multer = require('multer');
 const nodemailer = require('nodemailer');
 const fs = require('fs');
 const path = require('path');
+const dotenv = require('dotenv');
+dotenv.config();
+const Groq = require('groq-sdk');
+const groqClient = process.env.GROQ_API_KEY ? new Groq({ apiKey: process.env.GROQ_API_KEY }) : null;
 
 const app = express();
 
@@ -21,13 +25,38 @@ app.use(express.json());
 // This is a placeholder for a real AI API call.
 // Replace this with a call to the Groq, Gemini, or another AI service.
 async function generateSummaryWithAI(transcript, prompt) {
-    console.log("Generating summary with AI...");
-    // Simulate an API call with a delay
+    if (groqClient) {
+        try {
+            const systemMessage = 'You are a helpful assistant that creates concise, structured summaries of meeting transcripts. Use clear headings and bullet points, include key decisions and action items. Honor the user instruction.';
+            const userMessage = `Instruction: ${prompt || 'Summarize the meeting transcript with key points and action items.'}\n\nTranscript:\n${transcript}`;
+
+            const completion = await groqClient.chat.completions.create({
+                messages: [
+                    { role: 'system', content: systemMessage },
+                    { role: 'user', content: userMessage }
+                ],
+                model: process.env.GROQ_MODEL || 'llama-3.1-70b-versatile',
+                temperature: 0.3,
+                max_tokens: Number(process.env.GROQ_MAX_TOKENS || 1024)
+            });
+
+            const content = completion.choices && completion.choices[0] && completion.choices[0].message && completion.choices[0].message.content
+                ? completion.choices[0].message.content.trim()
+                : '';
+
+            if (content) {
+                return content;
+            }
+        } catch (error) {
+            console.error('Groq API error, falling back to simulated summary:', error);
+        }
+    }
+
     return new Promise(resolve => {
         setTimeout(() => {
-            const summary = `--- AI-Generated Summary ---\n\nPrompt: "${prompt}"\n\nTranscript beginning:\n"${transcript.substring(0, 250)}..."\n\n[This is a simulated summary. Integrate a real AI API to get a meaningful result.]`;
+            const summary = `--- AI-Generated Summary (Simulated) ---\n\nPrompt: "${prompt}"\n\nTranscript beginning:\n"${transcript.substring(0, 250)}..."\n\n[No GROQ_API_KEY configured. Set GROQ_API_KEY to enable real AI summaries.]`;
             resolve(summary);
-        }, 1500);
+        }, 800);
     });
 }
 
@@ -65,19 +94,29 @@ app.post('/generate-summary', upload.single('transcript'), async (req, res) => {
 app.post('/share-summary', async (req, res) => {
     const { summary, recipient } = req.body;
 
-    // IMPORTANT: Replace with your actual email service credentials.
-    // Using a service like SendGrid or Mailgun is recommended for production.
-    // For Gmail, you'll need to set up an "App Password".
+    const smtpHost = process.env.SMTP_HOST;
+    const smtpPort = Number(process.env.SMTP_PORT) || 587;
+    const smtpSecure = String(process.env.SMTP_SECURE || '').toLowerCase() === 'true';
+    const smtpUser = process.env.SMTP_USER;
+    const smtpPass = process.env.SMTP_PASS;
+    const emailFrom = process.env.EMAIL_FROM || smtpUser;
+
+    if (!smtpHost || !smtpUser || !smtpPass) {
+        return res.status(500).json({ message: 'Email service not configured on server.' });
+    }
+
     const transporter = nodemailer.createTransport({
-        service: 'gmail',
+        host: smtpHost,
+        port: smtpPort,
+        secure: smtpSecure,
         auth: {
-            user: 'your-email@gmail.com', // Replace with your Gmail address
-            pass: 'your-app-password'    // Replace with your Gmail App Password
+            user: smtpUser,
+            pass: smtpPass
         }
     });
 
     const mailOptions = {
-        from: '"Meeting Summarizer" <your-email@gmail.com>', // Replace with your email
+        from: emailFrom,
         to: recipient,
         subject: 'Your AI-Generated Meeting Summary',
         text: `Here is the meeting summary you requested:\n\n---\n\n${summary}`
@@ -91,6 +130,10 @@ app.post('/share-summary', async (req, res) => {
         console.log('Email sent successfully: ' + info.response);
         res.json({ message: `Email sent successfully to ${recipient}!` });
     });
+});
+
+app.get('/healthz', (req, res) => {
+    res.status(200).json({ status: 'ok' });
 });
 
 const PORT = process.env.PORT || 3000;
