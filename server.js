@@ -152,7 +152,18 @@ app.get('/healthz', (req, res) => {
     res.status(200).json({ status: 'ok' });
 });
 
+app.get('/diag', (req, res) => {
+    res.json({
+        groqEnabled: !!groqClient,
+        groqKeyPresent: !!process.env.GROQ_API_KEY,
+        groqModel: process.env.GROQ_MODEL || null,
+        smtpConfigured: !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
+    });
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
+    console.log('Groq enabled:', !!groqClient);
+    console.log('SMTP configured:', !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS));
 });
