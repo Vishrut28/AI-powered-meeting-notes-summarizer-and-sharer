@@ -7,6 +7,7 @@ const dotenv = require('dotenv');
 dotenv.config();
 const Groq = require('groq-sdk');
 const groqClient = process.env.GROQ_API_KEY ? new Groq({ apiKey: process.env.GROQ_API_KEY }) : null;
+const pdfParse = require('pdf-parse');
 
 const app = express();
 
@@ -69,25 +70,35 @@ app.post('/generate-summary', upload.single('transcript'), async (req, res) => {
     const transcriptPath = req.file.path;
     const prompt = req.body.prompt;
 
-    fs.readFile(transcriptPath, 'utf8', async (err, transcript) => {
-        // Clean up the uploaded file immediately after reading
+    const cleanup = () => {
         fs.unlink(transcriptPath, (unlinkErr) => {
             if (unlinkErr) console.error('Error deleting temp transcript file:', unlinkErr);
         });
+    };
 
-        if (err) {
-            console.error('File read error:', err);
-            return res.status(500).json({ error: 'Failed to read transcript file.' });
+    try {
+        let transcriptText = '';
+        const isPdf = (req.file.mimetype && req.file.mimetype === 'application/pdf') || req.file.originalname.toLowerCase().endsWith('.pdf');
+        if (isPdf) {
+            const dataBuffer = fs.readFileSync(transcriptPath);
+            const parsed = await pdfParse(dataBuffer);
+            transcriptText = parsed.text || '';
+        } else {
+            transcriptText = fs.readFileSync(transcriptPath, 'utf8');
+        }
+        cleanup();
+
+        if (!transcriptText || transcriptText.trim().length === 0) {
+            return res.status(400).json({ error: 'Uploaded file contains no extractable text.' });
         }
 
-        try {
-            const summary = await generateSummaryWithAI(transcript, prompt);
-            res.json({ summary });
-        } catch (aiError) {
-            console.error('AI service error:', aiError);
-            res.status(500).json({ error: 'Failed to generate summary from AI service.' });
-        }
-    });
+        const summary = await generateSummaryWithAI(transcriptText, prompt);
+        res.json({ summary });
+    } catch (err) {
+        console.error('Summary generation error:', err);
+        cleanup();
+        res.status(500).json({ error: 'Failed to process transcript.' });
+    }
 });
 
 // Endpoint to handle sharing the summary via email
